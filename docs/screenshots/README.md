@@ -47,6 +47,6 @@ This folder contains screenshots of the fintech-automation stack in production.
 *Real-time queue stats: Pending/Processing/Done/Failed with priority and retry tracking*
 
 ### Analytics Chart + Audit Log
-![Analytics and Audit Log](./retool-chart-audit.png)
+![Analytics and Audit Log](./retool-chart-audit.jpg)
 
 *Daily transaction volume chart + immutable audit log with action badges*
