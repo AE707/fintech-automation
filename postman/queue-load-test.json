@@ -1,0 +1,96 @@
+{
+  "info": {
+    "name": "Queue Load Test",
+    "description": "Load test collection for the fintech-automation queue buffer webhook",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://your-n8n-instance.com",
+      "description": "Base URL of your n8n instance"
+    },
+    {
+      "key": "webhookSecret",
+      "value": "your-webhook-secret",
+      "description": "Value of x-webhook-secret header"
+    }
+  ],
+  "item": [
+    {
+      "name": "Single Event Ingest",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-webhook-secret",
+            "value": "{{webhookSecret}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"transaction.created\",\n  \"payload\": {\n    \"reference\": \"TXN-{{$randomInt}}\",\n    \"amount\": {{$randomInt}}.00,\n    \"currency\": \"USD\",\n    \"sender_id\": \"{{$guid}}\",\n    \"receiver_id\": \"{{$guid}}\",\n    \"metadata\": {}\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/webhook/ingest",
+          "host": ["{{baseUrl}}"],
+          "path": ["webhook", "ingest"]
+        }
+      }
+    },
+    {
+      "name": "High-Value Event (triggers approval)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-webhook-secret",
+            "value": "{{webhookSecret}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"transaction.created\",\n  \"payload\": {\n    \"reference\": \"TXN-HIGH-{{$randomInt}}\",\n    \"amount\": 50000.00,\n    \"currency\": \"USD\",\n    \"sender_id\": \"{{$guid}}\",\n    \"receiver_id\": \"{{$guid}}\",\n    \"metadata\": { \"flag\": \"high-value\" }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/webhook/ingest",
+          "host": ["{{baseUrl}}"],
+          "path": ["webhook", "ingest"]
+        }
+      }
+    },
+    {
+      "name": "Invalid Payload (missing fields)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "x-webhook-secret",
+            "value": "{{webhookSecret}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"transaction.created\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/webhook/ingest",
+          "host": ["{{baseUrl}}"],
+          "path": ["webhook", "ingest"]
+        }
+      }
+    }
+  ]
+}
