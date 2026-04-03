@@ -1,71 +1,67 @@
--- ============================================================
+-- =============================================================
 -- schema.sql
--- Supabase / PostgreSQL table definitions for fintech-automation
--- ============================================================
+-- Supabase / PostgreSQL — fintech-automation database schema
+-- Tables: transactions, audit_log, approval_log, event_queue
+-- =============================================================
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
--- ------------------------------------------------------------
+-- =============================================================
 -- transactions
--- Core table storing all incoming financial transactions
--- ------------------------------------------------------------
+-- Core table storing all financial transactions
+-- =============================================================
 CREATE TABLE IF NOT EXISTS transactions (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  reference     TEXT NOT NULL UNIQUE,
-  amount        NUMERIC(18, 2) NOT NULL,
-  currency      CHAR(3) NOT NULL DEFAULT 'USD',
-  sender_id     UUID NOT NULL,
-  receiver_id   UUID NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'pending'
-                  CHECK (status IN ('pending','approved','rejected','processing','failed')),
-  metadata      JSONB,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id               SERIAL PRIMARY KEY,
+  user_id          INT            NOT NULL,
+  amount           NUMERIC(18,2)  NOT NULL,
+  type             VARCHAR(50),                        -- payment | transfer | refund
+  status           VARCHAR(50)    DEFAULT 'pending',   -- pending | approved | rejected | processing
+  created_at       TIMESTAMP      DEFAULT NOW(),
+  approved_by      VARCHAR(100),
+  approved_at      TIMESTAMP,
+  rejection_reason TEXT,
+  updated_at       TIMESTAMPTZ    DEFAULT NOW()
 );
 
--- ------------------------------------------------------------
+-- =============================================================
 -- audit_log
--- Immutable record of every action taken on a transaction
--- ------------------------------------------------------------
+-- Complete action history — every operator action is recorded
+-- =============================================================
 CREATE TABLE IF NOT EXISTS audit_log (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  transaction_id  UUID REFERENCES transactions(id) ON DELETE CASCADE,
-  action          TEXT NOT NULL,
-  performed_by    TEXT NOT NULL,
-  note            TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             SERIAL PRIMARY KEY,
+  action         VARCHAR(100)  NOT NULL,               -- approved | rejected | retried | viewed
+  transaction_id INT           REFERENCES transactions(id) ON DELETE SET NULL,
+  performed_by   VARCHAR(100),                         -- operator email or system
+  details        TEXT,
+  created_at     TIMESTAMP     DEFAULT NOW()
 );
 
--- ------------------------------------------------------------
--- queue_events
--- Buffer table used by n8n queue-buffer flows
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS queue_events (
-  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  event_type    TEXT NOT NULL,
-  payload       JSONB NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'queued'
-                  CHECK (status IN ('queued','processing','done','failed','dead')),
-  attempts      INT NOT NULL DEFAULT 0,
-  max_attempts  INT NOT NULL DEFAULT 3,
+-- =============================================================
+-- approval_log
+-- Manager decisions on high-value transactions (amount > 50)
+-- =============================================================
+CREATE TABLE IF NOT EXISTS approval_log (
+  id          SERIAL PRIMARY KEY,
+  approval_id VARCHAR(100),                            -- unique approval reference from n8n
+  user_id     INT,
+  amount      NUMERIC(18,2),
+  status      VARCHAR(50),                             -- approved | rejected
+  decided_at  TIMESTAMP,
+  created_at  TIMESTAMP    DEFAULT NOW()
+);
+
+-- =============================================================
+-- event_queue
+-- Event processing buffer — decouples ingest from processing
+-- =============================================================
+CREATE TABLE IF NOT EXISTS event_queue (
+  id            UUID         DEFAULT gen_random_uuid() PRIMARY KEY,
+  event_type    TEXT         NOT NULL,                 -- payment | transfer | refund
+  payload       JSONB        NOT NULL,
+  status        TEXT         DEFAULT 'pending'
+                  CHECK (status IN ('pending', 'processing', 'done', 'failed')),
+  priority      INT          DEFAULT 5,                -- 1 = highest, 10 = lowest
+  retry_count   INT          DEFAULT 0,
   error_message TEXT,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ------------------------------------------------------------
--- approval_requests
--- Tracks manual approval requests generated by n8n
--- ------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS approval_requests (
-  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  transaction_id  UUID REFERENCES transactions(id) ON DELETE CASCADE,
-  requested_by    TEXT NOT NULL,
-  status          TEXT NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending','approved','rejected')),
-  decision_by     TEXT,
-  decision_note   TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  received_at   TIMESTAMPTZ  DEFAULT NOW(),
+  processed_at  TIMESTAMPTZ,
+  created_by    TEXT         DEFAULT 'n8n-webhook'
 );
