@@ -1,9 +1,9 @@
--- ============================================================
+-- =============================================================
 -- triggers.sql
--- Auto-update updated_at timestamps for fintech-automation
--- ============================================================
+-- Auto-update updated_at + set processed_at for event_queue
+-- =============================================================
 
--- Reusable trigger function
+-- Shared trigger function: sets updated_at on every UPDATE
 CREATE OR REPLACE FUNCTION set_updated_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -19,16 +19,19 @@ CREATE TRIGGER trg_transactions_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION set_updated_at();
 
--- queue_events
-DROP TRIGGER IF EXISTS trg_queue_events_updated_at ON queue_events;
-CREATE TRIGGER trg_queue_events_updated_at
-  BEFORE UPDATE ON queue_events
-  FOR EACH ROW
-  EXECUTE FUNCTION set_updated_at();
+-- event_queue: also set processed_at when status changes to done/failed
+CREATE OR REPLACE FUNCTION set_event_queue_processed_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.status IN ('done', 'failed') AND OLD.status NOT IN ('done', 'failed') THEN
+    NEW.processed_at = NOW();
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- approval_requests
-DROP TRIGGER IF EXISTS trg_approval_requests_updated_at ON approval_requests;
-CREATE TRIGGER trg_approval_requests_updated_at
-  BEFORE UPDATE ON approval_requests
+DROP TRIGGER IF EXISTS trg_event_queue_processed_at ON event_queue;
+CREATE TRIGGER trg_event_queue_processed_at
+  BEFORE UPDATE ON event_queue
   FOR EACH ROW
-  EXECUTE FUNCTION set_updated_at();
+  EXECUTE FUNCTION set_event_queue_processed_at();
