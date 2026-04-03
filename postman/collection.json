@@ -1,0 +1,238 @@
+{
+  "info": {
+    "name": "fintech-automation API",
+    "description": "Complete API test collection for the fintech-automation stack. Covers webhook ingestion, transaction management, queue monitoring, and audit log endpoints via Supabase REST + n8n webhooks.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "2.0.0"
+  },
+  "variable": [
+    { "key": "BASE_URL",         "value": "https://your-project.supabase.co",     "type": "string" },
+    { "key": "N8N_URL",          "value": "https://your-n8n-instance.com",        "type": "string" },
+    { "key": "SUPABASE_KEY",     "value": "your-supabase-anon-key",              "type": "string" },
+    { "key": "SERVICE_KEY",      "value": "your-supabase-service-role-key",      "type": "string" },
+    { "key": "TRANSACTION_ID",   "value": "",                                    "type": "string" },
+    { "key": "EVENT_ID",         "value": "",                                    "type": "string" }
+  ],
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key",   "value": "apikey",             "type": "string" },
+      { "key": "value", "value": "{{SUPABASE_KEY}}",   "type": "string" },
+      { "key": "in",    "value": "header",             "type": "string" }
+    ]
+  },
+  "item": [
+    {
+      "name": "Webhooks (n8n)",
+      "item": [
+        {
+          "name": "Ingest Transaction Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{N8N_URL}}/webhook/transaction", "host": ["{{N8N_URL}}"], "path": ["webhook", "transaction"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"TXN-TEST-001\",\n  \"amount\": 1500.00,\n  \"currency\": \"USD\",\n  \"sender_account_id\": \"<sender-uuid>\",\n  \"receiver_account_id\": \"<receiver-uuid>\",\n  \"event_type\": \"transfer\",\n  \"metadata\": { \"note\": \"Test transfer\", \"channel\": \"api\" }\n}"
+            }
+          }
+        },
+        {
+          "name": "Trigger Approval Webhook",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{N8N_URL}}/webhook/approve", "host": ["{{N8N_URL}}"], "path": ["webhook", "approve"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"transaction_id\": \"{{TRANSACTION_ID}}\",\n  \"action\": \"approve\",\n  \"decision_by\": \"ops@company.com\",\n  \"note\": \"Approved after manual review\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Transactions (Supabase REST)",
+      "item": [
+        {
+          "name": "List Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{SUPABASE_KEY}}" },
+              { "key": "apikey",        "value": "{{SUPABASE_KEY}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rest/v1/transactions?select=*&order=created_at.desc&limit=20",
+              "host": ["{{BASE_URL}}"],
+              "path": ["rest", "v1", "transactions"],
+              "query": [
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "created_at.desc" },
+                { "key": "limit",  "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Transaction by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{SUPABASE_KEY}}" },
+              { "key": "apikey",        "value": "{{SUPABASE_KEY}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rest/v1/transactions?id=eq.{{TRANSACTION_ID}}&select=*",
+              "host": ["{{BASE_URL}}"],
+              "path": ["rest", "v1", "transactions"],
+              "query": [
+                { "key": "id",     "value": "eq.{{TRANSACTION_ID}}" },
+                { "key": "select", "value": "*" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter Pending Transactions",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{SUPABASE_KEY}}" },
+              { "key": "apikey",        "value": "{{SUPABASE_KEY}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rest/v1/transactions?status=eq.pending&select=*&order=created_at.desc",
+              "host": ["{{BASE_URL}}"],
+              "path": ["rest", "v1", "transactions"],
+              "query": [
+                { "key": "status", "value": "eq.pending" },
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "created_at.desc" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Event Queue (Supabase REST)",
+      "item": [
+        {
+          "name": "List Queued Events",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{SERVICE_KEY}}" },
+              { "key": "apikey",        "value": "{{SERVICE_KEY}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rest/v1/event_queue?status=eq.queued&select=*&order=created_at.asc",
+              "host": ["{{BASE_URL}}"],
+              "path": ["rest", "v1", "event_queue"],
+              "query": [
+                { "key": "status", "value": "eq.queued" },
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "created_at.asc" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "List Dead-Letter Events",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{SERVICE_KEY}}" },
+              { "key": "apikey",        "value": "{{SERVICE_KEY}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rest/v1/event_queue?status=eq.dead&select=*&order=created_at.desc",
+              "host": ["{{BASE_URL}}"],
+              "path": ["rest", "v1", "event_queue"],
+              "query": [
+                { "key": "status", "value": "eq.dead" },
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "created_at.desc" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reset Event for Retry",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{SERVICE_KEY}}" },
+              { "key": "apikey",        "value": "{{SERVICE_KEY}}" },
+              { "key": "Content-Type",  "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rest/v1/event_queue?id=eq.{{EVENT_ID}}",
+              "host": ["{{BASE_URL}}"],
+              "path": ["rest", "v1", "event_queue"],
+              "query": [{ "key": "id", "value": "eq.{{EVENT_ID}}" }]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"queued\",\n  \"retry_count\": 0,\n  \"error_message\": null\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit Log (Supabase REST)",
+      "item": [
+        {
+          "name": "Get Audit Log for Transaction",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{SUPABASE_KEY}}" },
+              { "key": "apikey",        "value": "{{SUPABASE_KEY}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rest/v1/audit_log?transaction_id=eq.{{TRANSACTION_ID}}&select=*&order=created_at.asc",
+              "host": ["{{BASE_URL}}"],
+              "path": ["rest", "v1", "audit_log"],
+              "query": [
+                { "key": "transaction_id", "value": "eq.{{TRANSACTION_ID}}" },
+                { "key": "select",         "value": "*" },
+                { "key": "order",          "value": "created_at.asc" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Accounts (Supabase REST)",
+      "item": [
+        {
+          "name": "List Accounts",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{SERVICE_KEY}}" },
+              { "key": "apikey",        "value": "{{SERVICE_KEY}}" }
+            ],
+            "url": {
+              "raw": "{{BASE_URL}}/rest/v1/accounts?select=*&order=created_at.desc",
+              "host": ["{{BASE_URL}}"],
+              "path": ["rest", "v1", "accounts"],
+              "query": [
+                { "key": "select", "value": "*" },
+                { "key": "order",  "value": "created_at.desc" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
