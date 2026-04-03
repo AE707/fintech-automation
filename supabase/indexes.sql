@@ -1,23 +1,23 @@
--- ============================================================
+-- =============================================================
 -- indexes.sql
--- Performance indexes for fintech-automation tables
--- ============================================================
+-- Performance indexes for fintech-automation
+-- =============================================================
 
--- transactions
+-- transactions: most common query patterns
 CREATE INDEX IF NOT EXISTS idx_transactions_status
   ON transactions (status);
 
-CREATE INDEX IF NOT EXISTS idx_transactions_sender
-  ON transactions (sender_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id
+  ON transactions (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_transactions_receiver
-  ON transactions (receiver_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_type
+  ON transactions (type);
 
 CREATE INDEX IF NOT EXISTS idx_transactions_created_at
   ON transactions (created_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_transactions_reference
-  ON transactions (reference);
+CREATE INDEX IF NOT EXISTS idx_transactions_amount
+  ON transactions (amount);
 
 -- audit_log
 CREATE INDEX IF NOT EXISTS idx_audit_log_transaction_id
@@ -29,19 +29,26 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_created_at
 CREATE INDEX IF NOT EXISTS idx_audit_log_performed_by
   ON audit_log (performed_by);
 
--- queue_events
-CREATE INDEX IF NOT EXISTS idx_queue_events_status
-  ON queue_events (status);
+-- approval_log
+CREATE INDEX IF NOT EXISTS idx_approval_log_approval_id
+  ON approval_log (approval_id);
 
-CREATE INDEX IF NOT EXISTS idx_queue_events_event_type
-  ON queue_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_approval_log_user_id
+  ON approval_log (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_queue_events_created_at
-  ON queue_events (created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_approval_log_status
+  ON approval_log (status);
 
--- approval_requests
-CREATE INDEX IF NOT EXISTS idx_approval_requests_transaction_id
-  ON approval_requests (transaction_id);
+-- event_queue: critical for processor performance
+CREATE INDEX IF NOT EXISTS idx_event_queue_status
+  ON event_queue (status);
 
-CREATE INDEX IF NOT EXISTS idx_approval_requests_status
-  ON approval_requests (status);
+CREATE INDEX IF NOT EXISTS idx_event_queue_priority_received
+  ON event_queue (priority ASC, received_at ASC)
+  WHERE status = 'pending';  -- partial index: only pending events
+
+CREATE INDEX IF NOT EXISTS idx_event_queue_event_type
+  ON event_queue (event_type);
+
+CREATE INDEX IF NOT EXISTS idx_event_queue_received_at
+  ON event_queue (received_at ASC);
