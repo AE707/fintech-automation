@@ -7,125 +7,56 @@
 ## System Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                  RETOOL — Transaction Dashboard              │
-│  ┌──────────┬──────────┬──────────┬────────────────────┐    │
-│  │  Stats   │  Chart   │ Filters  │     Export CSV     │    │
-│  ├──────────┴──────────┴──────────┴────────────────────┤    │
-│  │              Transactions Table                      │    │
-│  │   [Approve] → triggers n8n Approval Workflow        │    │
-│  │   [Reject]  → direct Supabase update               │    │
-│  ├──────────────────────────────────────────────────────┤    │
-│  │              Audit Log Panel                         │    │
-│  ├──────────────────────────────────────────────────────┤    │
-│  │              Queue Monitor Panel                     │    │
-│  │   Pending │ Processing │ Done │ Failed               │    │
-│  └──────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
-              ↓                            ↓
-┌─────────────────────┐      ┌─────────────────────────────┐
-│  n8n Approval        │      │  n8n Queue Buffer           │
-│  Workflow            │      │                             │
-│                      │      │  Flow A — Ingest            │
-│  Amount < €50        │      │  Webhook → Normalize        │
-│  → Auto approve      │      │  → Store in event_queue     │
-│  → audit_log update  │      │  → Return 202               │
-│                      │      │                             │
-│  Amount > €50        │      │  Flow B — Processor         │
-│  → Email manager     │      │  Schedule (30s)             │
-│  → Wait for decision │      │  → Fetch pending (limit 5)  │
-│  → approval_log      │      │  → Route by event_type      │
-│  → audit_log update  │      │  → Mark done/failed         │
-│  → status update     │      │  → Insert to transactions   │
-└─────────────────────┘      └─────────────────────────────┘
-              ↓                            ↓
-┌─────────────────────────────────────────────────────────────┐
-│                 SUPABASE — Single Database                    │
-│                                                              │
-│  transactions │ audit_log │ approval_log │ event_queue       │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Projects Overview
-
-### Project 1 — Retool Transaction Dashboard
-A real-time transaction monitoring interface for banking operators.
-
-**Features:**
-- Live transaction table with server-side pagination
-- Filter by User ID, transaction type, and status
-- Stats panel with total count, volume, and monthly comparisons
-- Interactive chart showing transaction trends
-- Export to CSV
-- Approve/Reject buttons with two-tier logic
-- Audit log panel showing all operator actions
-- Queue Monitor panel for real-time event processing visibility
-
-**Two-Tier Approval Logic:**
-
-| Amount | Behavior |
-|--------|----------|
-| Below €50 | Auto-approved instantly, status updated directly |
-| Above €50 | Flagged for manager review, email sent via n8n |
-
----
-
-### Project 2 — n8n Approval Workflow
-An automated approval engine that enforces financial controls.
-
-```
-Retool Approve button
-        ↓
-Webhook receives transaction data
-        ↓
-IF amount > €50
-   ↓ YES                    ↓ NO
-Send manager email      Auto-approve
-Wait for decision       Update status
-        ↓               Update audit_log
-Manager approves/rejects
-        ↓
-Update transaction status
-Log to approval_log
-Log to audit_log
-```
-
-**Key nodes:** Webhook → Amount IF → Generate Approval ID → Build URLs → Notify Manager → Wait → Approve/Reject branch → Log → Update status
-
----
-
-### Project 3 — n8n Queue Buffer System
-A resilient event processing queue that decouples ingestion from processing.
-
-**Flow A — Ingest:**
-```
-External event → Webhook → Normalize → INSERT event_queue → Return 202
-```
-
-**Flow B — Processor (every 30 seconds):**
-```
-Schedule → Fetch 5 pending → Loop (batch: 1)
-  → Switch by event_type
-    ├── payment  → Mark Done → Insert Transaction
-    ├── transfer → Mark Done → Insert Transaction
-    ├── refund   → Mark Done → Insert Transaction
-    └── fallback → Mark Failed
-  → Error Handler → Mark Failed + increment retry_count
++------------------------------------------------------------------+
+|                  RETOOL - Transaction Dashboard                  |
+|  +------------------+  +------------+  +---------------------+  |
+|  | Stats / KPI Cards|  | Chart View |  | Queue Monitor Panel |  |
+|  +------------------+  +------------+  +---------------------+  |
+|  +----------------------------------------------------------+    |
+|  |              Transactions Table (paginated)              |    |
+|  |  [Approve] --> triggers n8n Approval Webhook             |    |
+|  |  [Reject]  --> calls rejectTransaction SQL directly      |    |
+|  +----------------------------------------------------------+    |
+|  +----------------------------------------------------------+    |
+|  |                    Audit Log Panel                       |    |
+|  +----------------------------------------------------------+    |
++------------------------------------------------------------------+
+                               |
+                               | Webhook / Supabase REST
+                               v
++------------------------------------------------------------------+
+|                     n8n Workflow Engine                          |
+|                                                                  |
+|  [queue-buffer]        --> INSERT into event_queue (queued)     |
+|  [transaction-processor] <-- POLL event_queue every 30s        |
+|      |-- validate --> approve/reject --> update transactions     |
+|      |-- create audit_log entry                                  |
+|  [approval-workflow]   --> manual decision via Retool           |
+|  [queue-error-handler] --> retry failed events, Slack alert     |
++------------------------------------------------------------------+
+                               |
+                               | PostgreSQL (Supabase)
+                               v
++------------------------------------------------------------------+
+|                        Supabase Database                         |
+|                                                                  |
+|  accounts       - User/company account registry                  |
+|  transactions   - Core ledger with status tracking              |
+|  event_queue    - Decoupled async processing queue              |
+|  audit_log      - Immutable compliance trail                     |
++------------------------------------------------------------------+
 ```
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Dashboard | Retool | Rapid internal tool development, SQL + REST support |
-| Automation | n8n | Visual workflow builder, webhook + schedule triggers |
-| Database | Supabase (PostgreSQL) | REST API out of the box, real-time capable |
-| Email | Gmail via n8n | Manager notifications for high-value approvals |
-| Testing | Postman | Webhook simulation and load testing |
+| Layer | Tool | Purpose |
+|-------|------|---------|
+| **Dashboard** | Retool | Ops UI: transactions, approvals, KPIs |
+| **Automation** | n8n | Workflow engine: queue processing, webhooks |
+| **Database** | Supabase (PostgreSQL) | Data persistence, RLS, triggers |
+| **API Testing** | Postman | Webhook and REST endpoint testing |
 
 ---
 
@@ -134,87 +65,117 @@ Schedule → Fetch 5 pending → Loop (batch: 1)
 ```
 fintech-automation/
 ├── supabase/
-│   ├── schema.sql          ← 4 tables: transactions, audit_log, approval_log, event_queue
-│   ├── indexes.sql         ← Performance indexes
-│   └── triggers.sql        ← Auto-updated_at triggers
+│   ├── schema.sql            # 4-table schema with RLS policies
+│   ├── indexes.sql           # Performance indexes
+│   └── triggers.sql          # Auto-audit and timestamp triggers
 ├── n8n/
-│   ├── approval-workflow/  ← Two-tier approval flow docs
-│   ├── queue-buffer/       ← Flow A (ingest) + Flow B (processor)
-│   └── queue-error-handler/← Dead-letter monitoring
+│   ├── README.md             # n8n workflow overview
+│   ├── approval-workflow/
+│   │   └── workflow.json     # Manual approval via Retool + n8n
+│   ├── queue-buffer/
+│   │   └── workflow.json     # High-throughput webhook ingestion
+│   ├── transaction-processor/
+│   │   └── README.md         # Core queue-polling processor docs
+│   └── queue-error-handler/
+│       └── README.md         # Dead-letter retry and alerting docs
 ├── retool/
-│   ├── queries/            ← 11 SQL queries for the dashboard
-│   └── js/                 ← 5 JavaScript event handlers
-└── postman/
-    └── queue-load-test.json← Load test collection
+│   ├── queries/
+│   │   ├── getTransactions.sql      # Paginated transaction list
+│   │   ├── getAuditLog.sql          # Audit trail for a transaction
+│   │   ├── getStats.sql             # Dashboard KPI summary
+│   │   ├── getQueueItems.sql        # Event queue with overdue detection
+│   │   ├── getQueueStats.sql        # Queue health metrics
+│   │   ├── getChartData.sql         # Daily volume chart data
+│   │   ├── getCount.sql             # Total count for pagination
+│   │   ├── getCurrentMonthStats.sql # Current month KPIs
+│   │   ├── getLastMonthStats.sql    # Previous month KPIs (MoM)
+│   │   ├── rejectTransaction.sql    # Atomic rejection with audit
+│   │   └── retryFailedEvent.sql     # Dead-letter event reset
+│   └── js/
+│       ├── handleApprove.js         # Approve button handler
+│       ├── handleReject.js          # Reject button handler
+│       ├── insertAuditLog.js        # Supabase REST audit insert
+│       ├── logAuditAction.js        # Approval audit entry
+│       └── logRejectAction.js       # Rejection audit entry
+├── postman/
+│   ├── collection.json              # Full API test suite
+│   └── queue-load-test.json         # Load test collection
+└── README.md
 ```
 
 ---
 
-## Setup Guide
+## Database Schema
 
-### Prerequisites
-- Retool account (cloud or self-hosted)
-- n8n account (cloud or self-hosted)
-- Supabase project
-- Gmail account for manager notifications
+### `accounts`
+User and company account registry with balance tracking.
 
-### Step 1 — Supabase
-1. Create a new Supabase project
-2. Open SQL Editor → run `supabase/schema.sql`
-3. Run `supabase/indexes.sql` and `supabase/triggers.sql`
-4. Copy your **Project URL** and **service_role key** from Settings → API
+### `transactions`
+Core transaction ledger with status lifecycle:
+`pending` → `processing` → `approved` | `rejected` | `failed`
 
-### Step 2 — n8n Queue Buffer
-See [`n8n/queue-buffer/README.md`](./n8n/queue-buffer/README.md) for full setup.
+### `event_queue`
+Decoupled async processing queue with retry logic:
+`queued` → `processing` → `done` | `failed` → `dead`
 
-### Step 3 — n8n Approval Workflow
-See [`n8n/approval-workflow/README.md`](./n8n/approval-workflow/README.md) for full setup.
+### `audit_log`
+Immutable compliance trail — every status change creates an entry.
 
-### Step 4 — Retool Dashboard
-See [`retool/README.md`](./retool/README.md) for query and JS handler setup.
+---
 
-### Step 5 — Test the Full Flow
+## Quick Start
+
+### 1. Supabase Setup
+```sql
+-- Run in Supabase SQL editor (in order):
+\i supabase/schema.sql
+\i supabase/indexes.sql
+\i supabase/triggers.sql
+```
+
+### 2. n8n Setup
 ```bash
-POST https://your-n8n.app.n8n.cloud/webhook/queue/ingest
-{
-  "event_type": "payment",
-  "priority": 1,
-  "amount": 750.00,
-  "currency": "EUR",
-  "sender_id": 652,
-  "receiver_id": 273,
-  "description": "Client payment"
-}
+# Import workflows in this order:
+1. n8n/queue-buffer/workflow.json
+2. n8n/transaction-processor/  (see README)
+3. n8n/approval-workflow/workflow.json
+4. n8n/queue-error-handler/    (see README)
 ```
 
+### 3. Environment Variables
+```env
+SUPABASE_URL=https://<your-project>.supabase.co
+SUPABASE_SERVICE_KEY=<service_role_key>
+SUPABASE_ANON_KEY=<anon_key>
+RETOOL_WEBHOOK_SECRET=<shared_secret>
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+N8N_BASE_URL=https://<your-n8n-instance>
+```
+
+### 4. Retool Setup
+- Connect Retool to Supabase using the credentials above
+- Import the SQL queries from `retool/queries/`
+- Add the JS handlers from `retool/js/`
+
+### 5. API Testing
+- Import `postman/collection.json` into Postman
+- Set the collection variables (`BASE_URL`, `N8N_URL`, `SUPABASE_KEY`, `SERVICE_KEY`)
+- Run the webhook and REST endpoint tests
+
 ---
 
-## Live Demo Flow
+## Key Features
 
-1. Open Retool dashboard
-2. Send test event via Postman to queue webhook
-3. Watch Queue Monitor: `pending → processing → done`
-4. New transaction appears in transactions table
-5. Click **Approve** on transaction above €50
-6. Manager receives email notification
-7. Manager clicks **Approve** in email
-8. Transaction status → `approved`
-9. Audit log records full action chain
-
----
-
-## Key Design Decisions
-
-**Why a queue buffer?** Direct processing creates tight coupling — if Supabase is slow, the caller waits. The queue decouples ingestion from processing, gives rate control, and provides a retry mechanism.
-
-**Why two-tier approval?** Low-value transactions don't need human review. High-value ones have a clear audit trail with manager accountability — critical for financial compliance.
-
-**Why a single Supabase database?** One source of truth. Retool, n8n, and the queue all read/write the same tables — any change is immediately visible everywhere.
-
-**Why separate `audit_log` and `approval_log`?** `audit_log` captures every system action. `approval_log` captures only manager decisions on high-value transactions — two different compliance granularities.
+- **Event-driven architecture** — transactions never block; processed asynchronously via queue
+- **Multi-tier approval** — Retool UI triggers n8n approval workflow or rejects directly
+- **Dead-letter handling** — failed events retried up to 3x with Slack alerting
+- **Immutable audit trail** — every action logged with operator identity and timestamp
+- **Row-Level Security** — Supabase RLS enforces data access control
+- **Performance-optimized** — composite indexes on all hot query paths
+- **Month-over-month analytics** — current vs previous month KPI comparison in dashboard
 
 ---
 
 ## Author
 
-**Alaa (AE7)** — Computer Engineer and Automation & Retool Engineering Lead
+Built by [@AE707](https://github.com/AE707) as a production-ready fintech automation portfolio project.
